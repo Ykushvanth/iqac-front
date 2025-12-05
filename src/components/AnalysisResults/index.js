@@ -244,17 +244,32 @@ const AnalysisResults = () => {
     };
 
     const handleGenerateReport = async () => {
+        // Store data for report generation before clearing
+        const reportAnalysisData = analysisData;
+        const reportFacultyData = facultyData;
+        
         try {
             console.log('Starting report generation...');
             
+            // Clear existing analysis data
+            setAnalysisData(null);
+            setFacultyData(null);
+            setSectionScores({});
+            setNonScoringSections({});
+            setOverallScore(0);
+            setCommentsAnalysis(null);
+            setActiveSection('overview');
+            setCgpaFilter('all');
+            setLoading(true);
+            
             // Detailed data logging
             console.log('Full Analysis Data:', JSON.stringify({
-                staffId: analysisData.staff_id,
-                courseCode: analysisData.course_code,
-                courseName: analysisData.course_name,
-                totalResponses: analysisData.total_responses,
-                analysis: analysisData.analysis ? 
-                    Object.entries(analysisData.analysis).map(([key, section]) => ({
+                staffId: reportAnalysisData.staff_id,
+                courseCode: reportAnalysisData.course_code,
+                courseName: reportAnalysisData.course_name,
+                totalResponses: reportAnalysisData.total_responses,
+                analysis: reportAnalysisData.analysis ? 
+                    Object.entries(reportAnalysisData.analysis).map(([key, section]) => ({
                         sectionKey: key,
                         sectionName: section.section_name,
                         questions: Object.entries(section.questions || {}).map(([qKey, q]) => ({
@@ -271,8 +286,8 @@ const AnalysisResults = () => {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    analysisData,
-                    facultyData,
+                    analysisData: reportAnalysisData,
+                    facultyData: reportFacultyData,
                 }),
             });
 
@@ -305,16 +320,26 @@ const AnalysisResults = () => {
             // Create a temporary link and trigger download
             const a = document.createElement('a');
             a.href = url;
-            a.download = `faculty_feedback_report_${analysisData.staff_id || 'unknown'}.xlsx`;
+            a.download = `faculty_feedback_report_${reportAnalysisData.staff_id || 'unknown'}.xlsx`;
             document.body.appendChild(a);
             a.click();
             
             // Clean up
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
+            
+            // Navigate back to analysis page after successful report generation
+            navigate('/analysis');
         } catch (error) {
             console.error('Error generating report:', error);
             alert(`Failed to generate report: ${error.message}`);
+            // Restore data if report generation failed
+            setAnalysisData(reportAnalysisData);
+            setFacultyData(reportFacultyData);
+            if (reportAnalysisData) {
+                calculateScoresFromAnalysis(reportAnalysisData.analysis || {});
+            }
+            setLoading(false);
         }
     };
 
@@ -400,17 +425,14 @@ const AnalysisResults = () => {
             <main className="dashboard-content">
                 {activeSection === 'overview' ? (
                     <>
-                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem'}}>
-                            <div />
-                            <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                                <label style={{fontSize: '14px', color: '#333'}}>CGPA Filter:</label>
-                                <select value={cgpaFilter} onChange={(e) => { setCgpaFilter(e.target.value); setActiveSection('overview'); }} style={{padding: '6px 10px', borderRadius: '6px'}}>
-                                    <option value="all">All Students</option>
-                                    <option value="1">{analysisData?.cgpa_summary?.labels?.['1'] || 'Below 6.0'} ({analysisData?.cgpa_summary?.counts?.['1'] || 0})</option>
-                                    <option value="2">{analysisData?.cgpa_summary?.labels?.['2'] || '6.1 - 8.0'} ({analysisData?.cgpa_summary?.counts?.['2'] || 0})</option>
-                                    <option value="3">{analysisData?.cgpa_summary?.labels?.['3'] || 'Above 8.0'} ({analysisData?.cgpa_summary?.counts?.['3'] || 0})</option>
-                                </select>
-                            </div>
+                        <div className="cgpa-filter-container">
+                            <label>CGPA Filter:</label>
+                            <select value={cgpaFilter} onChange={(e) => { setCgpaFilter(e.target.value); setActiveSection('overview'); }}>
+                                <option value="all">All Students</option>
+                                <option value="1">{analysisData?.cgpa_summary?.labels?.['1'] || 'Below 6.0'} ({analysisData?.cgpa_summary?.counts?.['1'] || 0})</option>
+                                <option value="2">{analysisData?.cgpa_summary?.labels?.['2'] || '6.1 - 8.0'} ({analysisData?.cgpa_summary?.counts?.['2'] || 0})</option>
+                                <option value="3">{analysisData?.cgpa_summary?.labels?.['3'] || 'Above 8.0'} ({analysisData?.cgpa_summary?.counts?.['3'] || 0})</option>
+                            </select>
                         </div>
 
                         <div className="metrics-grid">
@@ -454,14 +476,14 @@ const AnalysisResults = () => {
 
                         {/* CGPA Distribution Summary */}
                         {analysisData.cgpa_summary && (
-                            <div className="cgpa-distribution" style={{marginTop: '1.5rem'}}>
+                            <div className="cgpa-distribution">
                                 <h2>CGPA Distribution</h2>
-                                <div className="distribution-grid" style={{display: 'flex', gap: '1rem', marginTop: '1rem'}}>
+                                <div className="cgpa-distribution-grid">
                                     {['1','2','3'].map(key => (
-                                        <div key={key} className={`distribution-item ${key === '1' ? 'negative' : key === '2' ? 'neutral' : 'positive'}`} style={{flex: 1, padding: '1rem', borderRadius: '8px', background: '#fff', boxShadow: '0 2px 6px rgba(0,0,0,0.06)'}}>
-                                            <div style={{fontSize: '14px', color: '#666'}}>{analysisData.cgpa_summary.labels[key]}</div>
-                                            <div style={{fontSize: '20px', fontWeight: 700, marginTop: '6px'}}>{analysisData.cgpa_summary.counts[key] || 0}</div>
-                                            <div style={{fontSize: '12px', color: '#888', marginTop: '4px'}}>{analysisData.cgpa_summary.percentages[key] || 0}%</div>
+                                        <div key={key} className={`cgpa-distribution-item ${key === '1' ? 'negative' : key === '2' ? 'neutral' : 'positive'}`}>
+                                            <div className="cgpa-label">{analysisData.cgpa_summary.labels[key]}</div>
+                                            <div className="cgpa-count">{analysisData.cgpa_summary.counts[key] || 0}</div>
+                                            <div className="cgpa-percentage">{analysisData.cgpa_summary.percentages[key] || 0}%</div>
                                         </div>
                                     ))}
                                 </div>

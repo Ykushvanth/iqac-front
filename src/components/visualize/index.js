@@ -1208,7 +1208,7 @@ const Visualize = () => {
 
                 {loading && (
                     <div className="loading-container">
-                        <div className="loading-spinner"></div>
+                        <div className="spinner-small"></div>
                         <p>Processing data...</p>
                     </div>
                 )}

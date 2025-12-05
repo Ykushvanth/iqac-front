@@ -1058,8 +1058,8 @@ const Analysis = () => {
                 {/* Loading overlay for analysis */}
                 {loadingAnalysis && (
                     <div className="analysis-loading-overlay">
-                        <div className="loading-spinner">
-                            <div className="spinner"></div>
+                        <div className="loading-content">
+                            <div className="spinner-small"></div>
                             <p>Fetching analysis data...</p>
                         </div>
                     </div>

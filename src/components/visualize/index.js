@@ -1,25 +1,37 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import './index.css';
 
-const SERVER_URL = process.env.REACT_APP_SERVER_URL || "https://iqac-backend-1.onrender.com";
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:5000";
 
 const Visualize = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const mode = searchParams.get('mode') || 'department'; // Default to department mode
     const [filters, setFilters] = useState({
         degree: '',
-        department: ''
+        currentAY: '',
+        semester: '',
+        courseOfferingDept: '',
+        artsOrEngg: '' // For radar mode
     });
     
     const [options, setOptions] = useState({
         degrees: [],
-        departments: []
+        currentAYs: [],
+        semesters: [],
+        courseOfferingDepts: [],
+        artsOrEnggOptions: [] // For radar mode: ['ARTS', 'ENGG']
     });
 
     const [visualizationData, setVisualizationData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [performanceFilter, setPerformanceFilter] = useState('all');
+    const [aggLoading, setAggLoading] = useState(false);
+    const [artsEnggData, setArtsEnggData] = useState(null);
+    const aggJsRootRef = useRef(null);
+    const aggJsRenderedRef = useRef(false);
 
     const handleLogout = () => {
         localStorage.removeItem('user');
@@ -27,14 +39,87 @@ const Visualize = () => {
     };
 
     useEffect(() => {
-        fetchDegrees();
-    }, []);
-
-    useEffect(() => {
-        if (filters.degree) {
-            fetchDepartments(filters.degree);
+        if (mode === 'department') {
+            fetchDegrees();
+        } else if (mode === 'radar') {
+            fetchArtsOrEnggOptions();
         }
-    }, [filters.degree]);
+    }, [mode]);
+
+    // Fetch current AY when degree changes (for department mode)
+    useEffect(() => {
+        if (mode === 'department' && filters.degree) {
+            fetchCurrentAY(filters.degree);
+            // Reset dependent filters
+            setFilters(prev => ({
+                ...prev,
+                currentAY: '',
+                semester: '',
+                courseOfferingDept: ''
+            }));
+        } else if (mode === 'department') {
+            setOptions(prev => ({ ...prev, currentAYs: [], semesters: [], courseOfferingDepts: [] }));
+        }
+    }, [filters.degree, mode]);
+
+    // Fetch current AY when artsOrEngg changes (for radar mode)
+    useEffect(() => {
+        if (mode === 'radar' && filters.artsOrEngg) {
+            fetchCurrentAYForRadar();
+            // Reset dependent filters
+            setFilters(prev => ({
+                ...prev,
+                currentAY: '',
+                semester: ''
+            }));
+        } else if (mode === 'radar') {
+            setOptions(prev => ({ ...prev, currentAYs: [], semesters: [] }));
+        }
+    }, [filters.artsOrEngg, mode]);
+
+    // Fetch semesters when current AY changes (for department mode)
+    useEffect(() => {
+        if (mode === 'department' && filters.currentAY && filters.degree) {
+            fetchSemesters(filters.degree, filters.currentAY);
+            // Reset dependent filters
+            setFilters(prev => ({
+                ...prev,
+                semester: '',
+                courseOfferingDept: ''
+            }));
+        } else if (mode === 'department') {
+            setOptions(prev => ({ ...prev, semesters: [], courseOfferingDepts: [] }));
+        }
+    }, [filters.currentAY, filters.degree, mode]);
+
+    // Fetch semesters when current AY changes (for radar mode)
+    useEffect(() => {
+        if (mode === 'radar' && filters.currentAY && filters.artsOrEngg) {
+            fetchSemestersForRadar(filters.currentAY);
+            // Reset dependent filters
+            setFilters(prev => ({
+                ...prev,
+                semester: ''
+            }));
+        } else if (mode === 'radar') {
+            setOptions(prev => ({ ...prev, semesters: [] }));
+        }
+    }, [filters.currentAY, filters.artsOrEngg, mode]);
+
+    // Fetch course offering departments when semester changes (for department mode)
+    useEffect(() => {
+        if (mode === 'department' && filters.semester && filters.degree && filters.currentAY) {
+            fetchCourseOfferingDepts(filters.degree, filters.currentAY, filters.semester);
+            // Reset dependent filters
+            setFilters(prev => ({
+                ...prev,
+                courseOfferingDept: ''
+            }));
+        } else if (mode === 'department') {
+            setOptions(prev => ({ ...prev, courseOfferingDepts: [] }));
+        }
+    }, [filters.semester, filters.degree, filters.currentAY, mode]);
+
 
     const fetchDegrees = async () => {
         try {
@@ -48,19 +133,89 @@ const Visualize = () => {
         }
     };
 
-    const fetchDepartments = async (degree) => {
+    const fetchCurrentAY = async (degree) => {
         try {
-            const response = await fetch(`${SERVER_URL}/api/analysis/departments?degree=${degree}`);
+            const response = await fetch(`${SERVER_URL}/api/analysis/current-ay?degree=${encodeURIComponent(degree)}`);
             const data = await response.json();
-            setOptions(prev => ({ ...prev, departments: data }));
+            setOptions(prev => ({ ...prev, currentAYs: Array.isArray(data) ? data : [] }));
         } catch (error) {
-            console.error('Error fetching departments:', error);
+            console.error('Error fetching current AY:', error);
+            setOptions(prev => ({ ...prev, currentAYs: [] }));
+        }
+    };
+
+    const fetchSemesters = async (degree, currentAY) => {
+        try {
+            const params = new URLSearchParams({ degree: encodeURIComponent(degree) });
+            if (currentAY) {
+                params.append('currentAY', encodeURIComponent(currentAY));
+            }
+            const response = await fetch(`${SERVER_URL}/api/analysis/semesters?${params.toString()}`);
+            const data = await response.json();
+            setOptions(prev => ({ ...prev, semesters: Array.isArray(data) ? data : [] }));
+        } catch (error) {
+            console.error('Error fetching semesters:', error);
+            setOptions(prev => ({ ...prev, semesters: [] }));
+        }
+    };
+
+    const fetchCourseOfferingDepts = async (degree, currentAY, semester) => {
+        try {
+            const params = new URLSearchParams({ degree: encodeURIComponent(degree) });
+            if (currentAY) params.append('currentAY', encodeURIComponent(currentAY));
+            if (semester) params.append('semester', encodeURIComponent(semester));
+            const response = await fetch(`${SERVER_URL}/api/analysis/course-offering-depts?${params.toString()}`);
+            const data = await response.json();
+            setOptions(prev => ({ ...prev, courseOfferingDepts: Array.isArray(data) ? data : [] }));
+        } catch (error) {
+            console.error('Error fetching course offering departments:', error);
+            setOptions(prev => ({ ...prev, courseOfferingDepts: [] }));
+        }
+    };
+
+    const fetchCurrentAYForRadar = async () => {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/visualization/current-ay`);
+            const data = await response.json();
+            setOptions(prev => ({ ...prev, currentAYs: Array.isArray(data) ? data : [] }));
+        } catch (error) {
+            console.error('Error fetching current AY for radar:', error);
+            setOptions(prev => ({ ...prev, currentAYs: [] }));
+        }
+    };
+
+    const fetchSemestersForRadar = async (currentAY) => {
+        try {
+            const params = new URLSearchParams();
+            if (currentAY) {
+                params.append('currentAY', encodeURIComponent(currentAY));
+            }
+            const response = await fetch(`${SERVER_URL}/api/visualization/semesters?${params.toString()}`);
+            const data = await response.json();
+            setOptions(prev => ({ ...prev, semesters: Array.isArray(data) ? data : [] }));
+        } catch (error) {
+            console.error('Error fetching semesters for radar:', error);
+            setOptions(prev => ({ ...prev, semesters: [] }));
+        }
+    };
+
+    const fetchArtsOrEnggOptions = async () => {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/visualization/arts-or-engg`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch arts/engg options');
+            }
+            const data = await response.json();
+            setOptions(prev => ({ ...prev, artsOrEnggOptions: Array.isArray(data) ? data : [] }));
+        } catch (error) {
+            console.error('Error fetching arts/engg options:', error);
+            setOptions(prev => ({ ...prev, artsOrEnggOptions: [] }));
         }
     };
 
     const handleGenerateVisualization = async () => {
-        if (!filters.degree || !filters.department) {
-            setError('Please select both Degree and Department.');
+        if (!filters.degree || !filters.currentAY || !filters.semester || !filters.courseOfferingDept) {
+            setError('Please select Degree, Current AY, Semester, and Course Offering Department.');
             return;
         }
 
@@ -68,8 +223,15 @@ const Visualize = () => {
             setLoading(true);
             setError(null);
             
+            const params = new URLSearchParams({
+                degree: encodeURIComponent(filters.degree),
+                currentAY: encodeURIComponent(filters.currentAY),
+                semester: encodeURIComponent(filters.semester),
+                courseOfferingDept: encodeURIComponent(filters.courseOfferingDept)
+            });
+            
             const response = await fetch(
-                `${SERVER_URL}/api/visualization/department?degree=${encodeURIComponent(filters.degree)}&dept=${encodeURIComponent(filters.department)}`
+                `${SERVER_URL}/api/visualization/department?${params.toString()}`
             );
             
             const data = await response.json();
@@ -86,6 +248,608 @@ const Visualize = () => {
             setLoading(false);
         }
     };
+
+    // Handle course click - sync with analysis component
+    const handleCourseClick = (courseCode) => {
+        // Save filters and course to localStorage for analysis component
+        const filtersToSave = {
+            degree: filters.degree,
+            currentAY: filters.currentAY,
+            semester: filters.semester,
+            courseOfferingDept: filters.courseOfferingDept,
+            course: courseCode
+        };
+        
+        localStorage.setItem('analysisFilters', JSON.stringify(filtersToSave));
+        console.log('Course selected and saved to localStorage:', courseCode);
+        
+        // Navigate to analysis page
+        navigate('/analysis');
+    };
+
+    const fetchArtsEnggAggregation = async () => {
+        if (!filters.artsOrEngg || !filters.currentAY || !filters.semester) {
+            alert('Please select Category (Arts/Engineering), Current Academic Year, and Semester.');
+            return;
+        }
+
+        try {
+            setAggLoading(true);
+            setArtsEnggData(null);
+            const response = await fetch(`${SERVER_URL}/api/visualization/school-radar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    artsOrEngg: filters.artsOrEngg,
+                    currentAY: filters.currentAY,
+                    semester: filters.semester
+                })
+            });
+            if (!response.ok) {
+                const e = await response.json().catch(() => ({}));
+                throw new Error(e.error || `HTTP ${response.status}`);
+            }
+            const payload = await response.json();
+            if (!payload?.success) {
+                throw new Error(payload?.error || 'Failed to fetch radar chart data');
+            }
+            setArtsEnggData(payload.data);
+            // Data will be rendered automatically by useEffect when artsEnggData changes
+        } catch (e) {
+            console.error('Aggregation error:', e);
+            alert(`Failed to load radar chart data: ${e.message}`);
+        } finally {
+            setAggLoading(false);
+        }
+    };
+
+    // JS-only aggregation card rendering (no JSX) - Only in radar mode
+    useEffect(() => {
+        if (mode !== 'radar' || !aggJsRootRef.current) return;
+        
+        // If already rendered, update button state and re-render data if available
+        if (aggJsRenderedRef.current) {
+            const buttons = aggJsRootRef.current.querySelectorAll('button.generate-button');
+            const loadBtn = buttons[0];
+            const downloadBtn = buttons[1];
+            
+            if (loadBtn) {
+                loadBtn.disabled = !filters.artsOrEngg || !filters.currentAY || !filters.semester;
+            }
+            if (downloadBtn) {
+                downloadBtn.disabled = !artsEnggData || !filters.artsOrEngg;
+            }
+            // Re-render data if it exists and category is selected
+            if (artsEnggData && filters.artsOrEngg) {
+                const results = aggJsRootRef.current.querySelector('.aggregation-bars');
+                const canvas = aggJsRootRef.current.querySelector('canvas');
+                if (results && canvas) {
+                    // Access the renderBars function from closure - we need to recreate it
+                    // For now, just trigger a re-render by clearing and re-adding
+                    const cat = filters.artsOrEngg.toUpperCase();
+                    const map = artsEnggData.by_department?.[cat] || {};
+                    const labels = Object.keys(map).map(key => ({ key, label: map[key]?.original_name || key }));
+                    const values = labels.map(({ key }) => {
+                        const entry = map[key];
+                        return entry ? entry.percent_ge_80 : 0;
+                    });
+                    
+                    // Re-render bars and radar
+                    results.innerHTML = '';
+                    const summary = document.createElement('div');
+                    summary.className = 'aggregation-summary';
+                    summary.style.cssText = 'background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 24px; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);';
+                    const total = artsEnggData?.totals?.[cat] || { total: 0, count_ge_80: 0, percent_ge_80: 0 };
+                    const categoryName = cat === 'ENGG' ? 'Engineering' : 'Arts';
+                    summary.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                            <span style="font-size: 24px;">📊</span>
+                            <h3 style="margin: 0; font-size: 18px; font-weight: 600;">${categoryName} Category Overview</h3>
+                        </div>
+                        <div style="display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+                            <div>
+                                <div style="font-size: 12px; opacity: 0.9; margin-bottom: 4px;">Overall Performance</div>
+                                <div style="font-size: 32px; font-weight: 700;">${total.percent_ge_80 || 0}%</div>
+                            </div>
+                            <div style="font-size: 14px; opacity: 0.9; padding-left: 16px; border-left: 1px solid rgba(255,255,255,0.3);">
+                                <div style="margin-bottom: 4px;">Faculty-Course Groups</div>
+                                <div style="font-size: 18px; font-weight: 600;">${total.count_ge_80 || 0} / ${total.total || 0}</div>
+                            </div>
+                        </div>
+                    `;
+                    results.appendChild(summary);
+                    
+                    const list = document.createElement('div');
+                    list.className = 'bar-list';
+                    list.style.cssText = 'display: flex; flex-direction: column; gap: 12px;';
+                    
+                    const sortedDepts = labels.sort((a, b) => {
+                        const pctA = map[a.key]?.percent_ge_80 || 0;
+                        const pctB = map[b.key]?.percent_ge_80 || 0;
+                        return pctB - pctA;
+                    });
+                    
+                    sortedDepts.forEach(({ key, label }) => {
+                        const entry = map[key];
+                        const pct = entry ? entry.percent_ge_80 : 0;
+                        const num = entry ? entry.count_ge_80 : 0;
+                        const den = entry ? entry.total : 0;
+
+                        const row = document.createElement('div');
+                        row.className = 'bar-row';
+                        row.style.cssText = 'background: white; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 16px;';
+                        
+                        const labelDiv = document.createElement('div');
+                        labelDiv.style.cssText = 'min-width: 120px; font-weight: 600; font-size: 14px; color: #1e293b;';
+                        labelDiv.textContent = label;
+
+                        const track = document.createElement('div');
+                        track.style.cssText = 'flex: 1; height: 32px; background: #f1f5f9; border-radius: 6px; overflow: hidden;';
+                        
+                        const fill = document.createElement('div');
+                        const fillColor = pct >= 80 ? '#22c55e' : pct >= 60 ? '#3b82f6' : pct >= 40 ? '#f59e0b' : '#ef4444';
+                        fill.style.cssText = `width: ${Math.min(100, pct)}%; height: 100%; background: ${fillColor}; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px;`;
+                        if (pct > 15) {
+                            const barText = document.createElement('span');
+                            barText.style.cssText = 'color: white; font-weight: 600; font-size: 12px;';
+                            barText.textContent = `${Math.round(pct)}%`;
+                            fill.appendChild(barText);
+                        }
+                        track.appendChild(fill);
+
+                        const value = document.createElement('div');
+                        value.style.cssText = 'min-width: 100px; text-align: right; font-weight: 600; font-size: 14px; color: #475569;';
+                        value.textContent = `${Math.round(pct)}% (${num}/${den})`;
+
+                        row.appendChild(labelDiv);
+                        row.appendChild(track);
+                        row.appendChild(value);
+                        list.appendChild(row);
+                    });
+                    results.appendChild(list);
+                    
+                    // Draw radar chart
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    if (labels.length > 0) {
+                        const cx = canvas.width / 2;
+                        const cy = canvas.height / 2;
+                        const maxR = 180;
+                        const steps = 5;
+                        ctx.save();
+                        ctx.translate(cx, cy);
+                        for (let s = 1; s <= steps; s++) {
+                            const r = (maxR * s) / steps;
+                            ctx.beginPath();
+                            ctx.strokeStyle = s === steps ? '#cbd5e1' : '#e2e8f0';
+                            ctx.lineWidth = s === steps ? 2 : 1;
+                            ctx.arc(0, 0, r, 0, Math.PI * 2);
+                            ctx.stroke();
+                        }
+                        const n = labels.length;
+                        const angleStep = (Math.PI * 2) / n;
+                        labels.forEach(({ label }, i) => {
+                            const angle = -Math.PI / 2 + i * angleStep;
+                            const x = Math.cos(angle) * maxR;
+                            const y = Math.sin(angle) * maxR;
+                            ctx.beginPath();
+                            ctx.strokeStyle = '#cbd5e1';
+                            ctx.lineWidth = 1;
+                            ctx.moveTo(0, 0);
+                            ctx.lineTo(x, y);
+                            ctx.stroke();
+                            const labelDist = maxR + 35;
+                            const lx = Math.cos(angle) * labelDist;
+                            const ly = Math.sin(angle) * labelDist;
+                            ctx.font = 'bold 13px sans-serif';
+                            ctx.fillStyle = '#1e293b';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText(label, lx, ly);
+                        });
+                        ctx.beginPath();
+                        values.forEach((val, i) => {
+                            const angle = -Math.PI / 2 + i * angleStep;
+                            const r = (Math.max(0, Math.min(100, val)) / 100) * maxR;
+                            const x = Math.cos(angle) * r;
+                            const y = Math.sin(angle) * r;
+                            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                        });
+                        ctx.closePath();
+                        ctx.fillStyle = 'rgba(37, 99, 235, 0.3)';
+                        ctx.fill();
+                        ctx.strokeStyle = '#2563eb';
+                        ctx.lineWidth = 3;
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+            }
+            return;
+        }
+
+        const root = aggJsRootRef.current;
+        const card = document.createElement('div');
+        card.className = 'chart-card';
+
+        const title = document.createElement('div');
+        title.className = 'chart-title';
+        const h3 = document.createElement('h3');
+        h3.textContent = 'Percent of Faculty-Course groups with Final Score ≥ 80';
+        const p = document.createElement('p');
+        p.textContent = 'By category and department';
+        title.appendChild(h3);
+        title.appendChild(p);
+
+        const controls = document.createElement('div');
+        controls.className = 'aggregation-controls';
+        controls.style.cssText = 'display: flex; gap: 12px; align-items: center;';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'generate-button';
+        btn.textContent = 'Load Radar Chart';
+        btn.disabled = !filters.artsOrEngg || !filters.currentAY || !filters.semester;
+
+        const downloadBtn = document.createElement('button');
+        downloadBtn.type = 'button';
+        downloadBtn.className = 'generate-button';
+        downloadBtn.style.cssText = 'background: linear-gradient(135deg, #10b981 0%, #059669 100%); border: none; color: white; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s;';
+        downloadBtn.textContent = '📥 Download Chart';
+        downloadBtn.disabled = !artsEnggData || !filters.artsOrEngg;
+        downloadBtn.onmouseenter = () => {
+            if (!downloadBtn.disabled) {
+                downloadBtn.style.transform = 'translateY(-2px)';
+                downloadBtn.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.3)';
+            }
+        };
+        downloadBtn.onmouseleave = () => {
+            downloadBtn.style.transform = 'translateY(0)';
+            downloadBtn.style.boxShadow = 'none';
+        };
+
+        controls.appendChild(btn);
+        controls.appendChild(downloadBtn);
+
+        const results = document.createElement('div');
+        results.className = 'aggregation-bars';
+
+        // Radar chart container with better styling
+        const radarWrap = document.createElement('div');
+        radarWrap.className = 'radar-chart-wrapper';
+        radarWrap.style.marginTop = '24px';
+        radarWrap.style.padding = '20px';
+        radarWrap.style.backgroundColor = '#f8fafc';
+        radarWrap.style.borderRadius = '12px';
+        radarWrap.style.display = 'flex';
+        radarWrap.style.justifyContent = 'center';
+        radarWrap.style.alignItems = 'center';
+        radarWrap.style.border = '1px solid #e2e8f0';
+        const canvas = document.createElement('canvas');
+        canvas.width = 600;
+        canvas.height = 600;
+        canvas.style.display = 'block';
+        radarWrap.appendChild(canvas);
+
+        card.appendChild(title);
+        card.appendChild(controls);
+        card.appendChild(results);
+        card.appendChild(radarWrap);
+        root.appendChild(card);
+
+        const drawRadar = (data, cat) => {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (!data) return;
+
+            const map = data.by_department?.[cat] || {};
+            const labels = Object.keys(map).map(key => ({ key, label: map[key]?.original_name || key }));
+            if (labels.length === 0) return;
+
+            const values = labels.map(({ key }) => {
+                const entry = map[key];
+                return entry ? entry.percent_ge_80 : 0;
+            });
+
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const maxR = 180; // radius
+            const steps = 5; // grid rings: 20,40,60,80,100
+
+            ctx.save();
+            ctx.translate(cx, cy);
+
+            // Grid rings with better styling
+            for (let s = 1; s <= steps; s++) {
+                const r = (maxR * s) / steps;
+                ctx.beginPath();
+                ctx.strokeStyle = s === steps ? '#cbd5e1' : '#e2e8f0';
+                ctx.lineWidth = s === steps ? 2 : 1;
+                ctx.arc(0, 0, r, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.closePath();
+                
+                // Ring labels with better styling
+                ctx.font = 'bold 11px sans-serif';
+                ctx.fillStyle = '#64748b';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`${(s * 100) / steps}%`, 0, -r - 3);
+            }
+
+            const n = labels.length;
+            const angleStep = (Math.PI * 2) / n;
+
+            // Axes with better styling
+            labels.forEach(({ label }, i) => {
+                const angle = -Math.PI / 2 + i * angleStep;
+                const x = Math.cos(angle) * maxR;
+                const y = Math.sin(angle) * maxR;
+                
+                // Axis line
+                ctx.beginPath();
+                ctx.strokeStyle = '#cbd5e1';
+                ctx.lineWidth = 1;
+                ctx.moveTo(0, 0);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+                ctx.closePath();
+
+                // Department labels with better positioning
+                const labelDist = maxR + 35;
+                const lx = Math.cos(angle) * labelDist;
+                const ly = Math.sin(angle) * labelDist;
+                
+                ctx.font = 'bold 13px sans-serif';
+                ctx.fillStyle = '#1e293b';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // Add background for better readability
+                const textWidth = ctx.measureText(label).width;
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.fillRect(lx - textWidth/2 - 4, ly - 8, textWidth + 8, 16);
+                
+                ctx.fillStyle = '#1e293b';
+                ctx.fillText(label, lx, ly);
+            });
+
+            // Data polygon with gradient fill
+            ctx.beginPath();
+            const gradient = ctx.createLinearGradient(-maxR, -maxR, maxR, maxR);
+            gradient.addColorStop(0, 'rgba(37, 99, 235, 0.4)');
+            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.25)');
+            
+            values.forEach((val, i) => {
+                const angle = -Math.PI / 2 + i * angleStep;
+                const r = (Math.max(0, Math.min(100, val)) / 100) * maxR;
+                const x = Math.cos(angle) * r;
+                const y = Math.sin(angle) * r;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.closePath();
+            ctx.fillStyle = gradient;
+            ctx.fill();
+            ctx.strokeStyle = '#2563eb';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Points with value labels
+            values.forEach((val, i) => {
+                const angle = -Math.PI / 2 + i * angleStep;
+                const r = (Math.max(0, Math.min(100, val)) / 100) * maxR;
+                const x = Math.cos(angle) * r;
+                const y = Math.sin(angle) * r;
+                
+                // Point circle
+                ctx.beginPath();
+                ctx.arc(x, y, 5, 0, Math.PI * 2);
+                ctx.fillStyle = '#2563eb';
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.closePath();
+                
+                // Value label near point
+                const labelAngle = angle;
+                const labelR = r + 20;
+                const labelX = Math.cos(labelAngle) * labelR;
+                const labelY = Math.sin(labelAngle) * labelR;
+                
+                ctx.font = 'bold 11px sans-serif';
+                ctx.fillStyle = '#1e40af';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // Background for value label
+                const valText = `${Math.round(val)}%`;
+                const valWidth = ctx.measureText(valText).width;
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                ctx.fillRect(labelX - valWidth/2 - 3, labelY - 7, valWidth + 6, 14);
+                
+                ctx.fillStyle = '#1e40af';
+                ctx.fillText(valText, labelX, labelY);
+            });
+
+            ctx.restore();
+        };
+
+        const renderBars = (data, cat) => {
+            results.innerHTML = '';
+            if (!data) {
+                const c = canvas.getContext('2d');
+                if (c && c.clearRect) c.clearRect(0, 0, canvas.width, canvas.height);
+                return;
+            }
+            
+            // Enhanced summary card
+            const summary = document.createElement('div');
+            summary.className = 'aggregation-summary';
+            summary.style.cssText = 'background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 24px; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);';
+            const total = data?.totals?.[cat] || { total: 0, count_ge_80: 0, percent_ge_80: 0 };
+            const categoryName = cat === 'ENGG' ? 'Engineering' : 'Arts';
+            summary.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                    <span style="font-size: 24px;">📊</span>
+                    <h3 style="margin: 0; font-size: 18px; font-weight: 600;">${categoryName} Category Overview</h3>
+                </div>
+                <div style="display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+                    <div>
+                        <div style="font-size: 12px; opacity: 0.9; margin-bottom: 4px;">Overall Performance</div>
+                        <div style="font-size: 32px; font-weight: 700;">${total.percent_ge_80 || 0}%</div>
+                    </div>
+                    <div style="font-size: 14px; opacity: 0.9; padding-left: 16px; border-left: 1px solid rgba(255,255,255,0.3);">
+                        <div style="margin-bottom: 4px;">Faculty-Course Groups</div>
+                        <div style="font-size: 18px; font-weight: 600;">${total.count_ge_80 || 0} / ${total.total || 0}</div>
+                    </div>
+                </div>
+            `;
+            results.appendChild(summary);
+
+            const list = document.createElement('div');
+            list.className = 'bar-list';
+            list.style.cssText = 'display: flex; flex-direction: column; gap: 12px;';
+            
+            const depts = Object.keys(data?.by_department?.[cat] || {});
+            
+            // Sort departments by percentage (descending)
+            const sortedDepts = depts.sort((a, b) => {
+                const pctA = data?.by_department?.[cat]?.[a]?.percent_ge_80 || 0;
+                const pctB = data?.by_department?.[cat]?.[b]?.percent_ge_80 || 0;
+                return pctB - pctA;
+            });
+            
+            sortedDepts.forEach((dept) => {
+                const entry = data?.by_department?.[cat]?.[dept];
+                const pct = entry ? entry.percent_ge_80 : 0;
+                const num = entry ? entry.count_ge_80 : 0;
+                const den = entry ? entry.total : 0;
+
+                const row = document.createElement('div');
+                row.className = 'bar-row';
+                row.style.cssText = 'background: white; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 16px; transition: all 0.2s;';
+                row.onmouseenter = () => {
+                    row.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                    row.style.transform = 'translateY(-2px)';
+                };
+                row.onmouseleave = () => {
+                    row.style.boxShadow = 'none';
+                    row.style.transform = 'translateY(0)';
+                };
+
+                const labelDiv = document.createElement('div');
+                labelDiv.className = 'bar-label';
+                labelDiv.style.cssText = 'min-width: 120px; font-weight: 600; font-size: 14px; color: #1e293b;';
+                labelDiv.textContent = entry?.original_name || dept;
+
+                const track = document.createElement('div');
+                track.className = 'bar-track';
+                track.style.cssText = 'flex: 1; height: 32px; background: #f1f5f9; border-radius: 6px; overflow: hidden; position: relative;';
+                
+                const fill = document.createElement('div');
+                fill.className = 'bar-fill';
+                const fillColor = pct >= 80 ? '#22c55e' : pct >= 60 ? '#3b82f6' : pct >= 40 ? '#f59e0b' : '#ef4444';
+                fill.style.cssText = `width: ${Math.min(100, pct)}%; height: 100%; background: ${fillColor}; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; transition: width 0.6s ease;`;
+                
+                // Add percentage text inside bar if there's space
+                if (pct > 15) {
+                    const barText = document.createElement('span');
+                    barText.style.cssText = 'color: white; font-weight: 600; font-size: 12px;';
+                    barText.textContent = `${Math.round(pct)}%`;
+                    fill.appendChild(barText);
+                }
+                
+                track.appendChild(fill);
+
+                const value = document.createElement('div');
+                value.className = 'bar-value';
+                value.style.cssText = 'min-width: 100px; text-align: right; font-weight: 600; font-size: 14px; color: #475569;';
+                value.textContent = `${Math.round(pct)}% (${num}/${den})`;
+
+                row.appendChild(labelDiv);
+                row.appendChild(track);
+                row.appendChild(value);
+                list.appendChild(row);
+            });
+
+            if (depts.length === 0) {
+                const nd = document.createElement('div');
+                nd.className = 'no-data-text';
+                nd.textContent = 'No departments found for this category.';
+                list.appendChild(nd);
+            }
+
+            results.appendChild(list);
+
+            // Draw radar after bars
+            drawRadar(data, cat);
+        };
+
+        // Download function for radar chart
+        const downloadRadarChart = () => {
+            if (!canvas || !artsEnggData || !filters.artsOrEngg) {
+                alert('Please load the radar chart first.');
+                return;
+            }
+
+            try {
+                // Create a temporary link element
+                const link = document.createElement('a');
+                const cat = filters.artsOrEngg.toUpperCase();
+                const categoryName = cat === 'ENGG' ? 'Engineering' : 'Arts';
+                const fileName = `Radar_Chart_${categoryName}_${filters.currentAY}_Sem${filters.semester}_${new Date().toISOString().split('T')[0]}.png`;
+                
+                // Convert canvas to data URL and download
+                link.download = fileName;
+                link.href = canvas.toDataURL('image/png');
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                console.log('Radar chart downloaded successfully');
+            } catch (error) {
+                console.error('Error downloading radar chart:', error);
+                alert('Failed to download radar chart. Please try again.');
+            }
+        };
+
+        downloadBtn.addEventListener('click', downloadRadarChart);
+
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = 'Loading...';
+            try {
+                await fetchArtsEnggAggregation();
+                // After fetching, render with the selected category from filters
+                if (artsEnggData && filters.artsOrEngg) {
+                    renderBars(artsEnggData, filters.artsOrEngg.toUpperCase());
+                    // Enable download button after data is loaded
+                    downloadBtn.disabled = false;
+                }
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Load Radar Chart';
+            }
+        });
+
+        // initial state - render if data exists and category is selected
+        if (artsEnggData && filters.artsOrEngg) {
+            renderBars(artsEnggData, filters.artsOrEngg.toUpperCase());
+            downloadBtn.disabled = false;
+        }
+
+        aggJsRenderedRef.current = true;
+
+        // cleanup listeners if unmount
+        return () => {
+            btn.replaceWith(btn.cloneNode(true));
+            downloadBtn.replaceWith(downloadBtn.cloneNode(true));
+            root.innerHTML = '';
+            aggJsRenderedRef.current = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mode, artsEnggData, filters.artsOrEngg, filters.currentAY, filters.semester]);
 
     // Filter faculty based on performance category
     const filterFacultyByPerformance = (faculty, filter) => {
@@ -255,60 +1019,185 @@ const Visualize = () => {
 
             <main className="visualize-main">
                 <div className="page-header">
-                    <h2 className="page-title">Feedback Analysis Dashboard</h2>
-                    <p className="page-subtitle">Comprehensive performance metrics and insights</p>
+                    <h2 className="page-title">
+                        {mode === 'radar' ? 'Radar Chart Generation' : 'Feedback Analysis Dashboard'}
+                    </h2>
+                    <p className="page-subtitle">
+                        {mode === 'radar' 
+                            ? 'Category-wise performance visualization (Engineering/Arts)' 
+                            : 'Comprehensive performance metrics and insights'}
+                    </p>
                 </div>
 
-                <div className="filters-panel">
-                    <div className="filter-row">
-                        <div className="filter-item">
-                            <label htmlFor="degree-select">Degree</label>
-                            <select 
-                                id="degree-select"
-                                value={filters.degree}
-                                onChange={(e) => setFilters({ 
-                                    ...filters, 
-                                    degree: e.target.value,
-                                    department: ''
-                                })}
-                                className="filter-select"
-                            >
-                                <option value="">Select Degree</option>
-                                {options.degrees.map(degree => (
-                                    <option key={degree} value={degree}>{degree}</option>
-                                ))}
-                            </select>
-                        </div>
+                {/* Show filters and department visualization only in department mode */}
+                {mode === 'department' && (
+                    <>
+                        <div className="filters-panel">
+                            <div className="filter-row">
+                                <div className="filter-item">
+                                    <label htmlFor="degree-select">Degree</label>
+                                    <select 
+                                        id="degree-select"
+                                        value={filters.degree}
+                                        onChange={(e) => setFilters({ 
+                                            ...filters, 
+                                            degree: e.target.value,
+                                            currentAY: '',
+                                            semester: '',
+                                            courseOfferingDept: ''
+                                        })}
+                                        className="filter-select"
+                                    >
+                                        <option value="">Select Degree</option>
+                                        {options.degrees.map(degree => (
+                                            <option key={degree} value={degree}>{degree}</option>
+                                        ))}
+                                    </select>
+                                </div>
 
-                        <div className="filter-item">
-                            <label htmlFor="dept-select">Department</label>
-                            <select 
-                                id="dept-select"
-                                value={filters.department}
-                                onChange={(e) => setFilters({
-                                    ...filters,
-                                    department: e.target.value
-                                })}
-                                disabled={!filters.degree}
-                                className="filter-select"
-                            >
-                                <option value="">Select Department</option>
-                                {options.departments.map(dept => (
-                                    <option key={dept} value={dept}>{dept}</option>
-                                ))}
-                            </select>
-                        </div>
+                                <div className="filter-item">
+                                    <label htmlFor="current-ay-select">Current Academic Year</label>
+                                    <select
+                                        id="current-ay-select"
+                                        value={filters.currentAY}
+                                        onChange={(e) => setFilters({
+                                            ...filters,
+                                            currentAY: e.target.value,
+                                            semester: '',
+                                            courseOfferingDept: ''
+                                        })}
+                                        disabled={!filters.degree}
+                                        className="filter-select"
+                                    >
+                                        <option value="">Select Academic Year</option>
+                                        {options.currentAYs.map(ay => (
+                                            <option key={ay} value={ay}>{ay}</option>
+                                        ))}
+                                    </select>
+                                </div>
 
-                        <button
-                            type="button"
-                            className="generate-button"
-                            onClick={handleGenerateVisualization}
-                            disabled={!filters.degree || !filters.department || loading}
-                        >
-                            {loading ? 'Loading...' : 'Generate Report'}
-                        </button>
+                                <div className="filter-item">
+                                    <label htmlFor="semester-select">Semester</label>
+                                    <select
+                                        id="semester-select"
+                                        value={filters.semester}
+                                        onChange={(e) => setFilters({
+                                            ...filters,
+                                            semester: e.target.value,
+                                            courseOfferingDept: ''
+                                        })}
+                                        disabled={!filters.currentAY}
+                                        className="filter-select"
+                                    >
+                                        <option value="">Select Semester</option>
+                                        {options.semesters.map(sem => (
+                                            <option key={sem} value={sem}>{sem}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="filter-item">
+                                    <label htmlFor="course-offering-dept-select">Course Offering Department</label>
+                                    <select 
+                                        id="course-offering-dept-select"
+                                        value={filters.courseOfferingDept}
+                                        onChange={(e) => setFilters({
+                                            ...filters,
+                                            courseOfferingDept: e.target.value
+                                        })}
+                                        disabled={!filters.semester}
+                                        className="filter-select"
+                                    >
+                                        <option value="">Select Course Offering Department</option>
+                                        {options.courseOfferingDepts.map(dept => (
+                                            <option key={dept} value={dept}>{dept}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    className="generate-button"
+                                    onClick={handleGenerateVisualization}
+                                    disabled={!filters.degree || !filters.courseOfferingDept || loading}
+                                >
+                                    {loading ? 'Loading...' : 'Generate Report'}
+                                </button>
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {/* Show filters for radar mode */}
+                {mode === 'radar' && (
+                    <div className="filters-panel">
+                        <div className="filter-row">
+                            <div className="filter-item">
+                                <label htmlFor="radar-arts-engg-select">Category (Arts/Engineering) *</label>
+                                <select 
+                                    id="radar-arts-engg-select"
+                                    value={filters.artsOrEngg}
+                                    onChange={(e) => setFilters({ 
+                                        ...filters, 
+                                        artsOrEngg: e.target.value,
+                                        currentAY: '',
+                                        semester: ''
+                                    })}
+                                    className="filter-select"
+                                >
+                                    <option value="">Select Category</option>
+                                    {options.artsOrEnggOptions.map(option => (
+                                        <option key={option} value={option}>
+                                            {option === 'ARTS' ? 'Arts' : option === 'ENGG' ? 'Engineering' : option}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="filter-item">
+                                <label htmlFor="radar-current-ay-select">Current Academic Year *</label>
+                                <select
+                                    id="radar-current-ay-select"
+                                    value={filters.currentAY}
+                                    onChange={(e) => setFilters({
+                                        ...filters,
+                                        currentAY: e.target.value,
+                                        semester: ''
+                                    })}
+                                    disabled={!filters.artsOrEngg}
+                                    className="filter-select"
+                                >
+                                    <option value="">Select Academic Year</option>
+                                    {options.currentAYs.map(ay => (
+                                        <option key={ay} value={ay}>{ay}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="filter-item">
+                                <label htmlFor="radar-semester-select">Semester *</label>
+                                <select
+                                    id="radar-semester-select"
+                                    value={filters.semester}
+                                    onChange={(e) => setFilters({
+                                        ...filters,
+                                        semester: e.target.value
+                                    })}
+                                    disabled={!filters.currentAY}
+                                    className="filter-select"
+                                >
+                                    <option value="">Select Semester</option>
+                                    {options.semesters.map(sem => (
+                                        <option key={sem} value={sem}>{sem}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                )}
+
+                {/* JS-rendered aggregation card mount point - Show only in radar mode */}
+                {mode === 'radar' && <div ref={aggJsRootRef}></div>}
 
                 {error && (
                     <div className="error-alert">
@@ -324,7 +1213,8 @@ const Visualize = () => {
                     </div>
                 )}
 
-                {visualizationData && visualizationData.success && (
+                {/* Show department visualization only in department mode */}
+                {mode === 'department' && visualizationData && visualizationData.success && (
                     <div className="dashboard-content">
                         {/* Performance Filter */}
                         <div className="performance-filter-panel">
@@ -600,7 +1490,7 @@ const Visualize = () => {
                                         ? Math.round(course.faculties.reduce((sum, f) => sum + (f.overall_score || 0), 0) / course.faculties.length)
                                         : 0;
                                     return (
-                                        <div key={idx} className="course-card">
+                                        <div key={idx} className="course-card" style={{ cursor: 'pointer' }} onClick={() => handleCourseClick(course.course_code)}>
                                             <div className="course-card-header">
                                                 <div>
                                                     <div className="course-code">{course.course_code}</div>
@@ -609,6 +1499,7 @@ const Visualize = () => {
                                                 <div className="course-meta">
                                                     <span className="meta-item">{course.faculties.length} Faculty</span>
                                                     <span className="meta-item">Avg: {courseAvg}%</span>
+                                                    <span className="meta-item" style={{ background: '#2563eb', color: 'white', fontWeight: '600' }}>Click to Analyze</span>
                                                 </div>
                                             </div>
                                             <div className="faculty-table">
@@ -623,6 +1514,7 @@ const Visualize = () => {
                                                                 
                                                                 <span>{faculty.total_responses} responses</span>
                                                             </div>
+
                                                         </div>
                                                         <div className="faculty-score">
                                                             <div className="score-value">{faculty.overall_score}%</div>
@@ -654,3 +1546,4 @@ const Visualize = () => {
 };
 
 export default Visualize;
+

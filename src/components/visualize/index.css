@@ -631,6 +631,13 @@
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     overflow: hidden;
+    transition: all 0.2s ease;
+}
+
+.course-card:hover {
+    border-color: #2563eb;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+    transform: translateY(-2px);
 }
 
 .course-card-header {
@@ -1000,4 +1007,95 @@
         width: 100%;
         min-width: unset;
     }
+}
+
+/* Aggregation/Radar Chart Styles */
+.aggregation-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.aggregation-bars {
+    margin-bottom: 1.5rem;
+}
+
+.aggregation-summary {
+    margin-bottom: 1.5rem;
+}
+
+.bar-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.bar-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s ease;
+}
+
+.bar-row:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.bar-label {
+    min-width: 120px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #1e293b;
+}
+
+.bar-track {
+    flex: 1;
+    height: 32px;
+    background: #f1f5f9;
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+}
+
+.bar-fill {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 0.5rem;
+    transition: width 0.6s ease;
+    border-radius: 6px;
+}
+
+.bar-value {
+    min-width: 100px;
+    text-align: right;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #475569;
+}
+
+.radar-chart-wrapper {
+    margin-top: 1.5rem;
+    padding: 1.25rem;
+    background: #f8fafc;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.no-data-text {
+    text-align: center;
+    padding: 2rem;
+    color: #6b7280;
+    font-size: 0.875rem;
 }

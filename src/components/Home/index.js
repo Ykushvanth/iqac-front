@@ -5,11 +5,12 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './index.css';
 
-const SERVER_URL = process.env.REACT_APP_SERVER_URL || "https://iqac-backend-1.onrender.com";
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:5000";
 
 const Home = () => {
   const navigate = useNavigate();
   const [showAnalysisOptions, setShowAnalysisOptions] = useState(false);
+  const [showVisualizationOptions, setShowVisualizationOptions] = useState(false);
 
   const handleLogout = () => {
     localStorage.removeItem('user');
@@ -90,33 +91,12 @@ const Home = () => {
         </p>
 
         <div className="action-buttons">
-          <label className="upload-button-container">
-            <input
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              onChange={(e) => handleFileUpload(
-                e, 
-                '/api/upload', 
-                'Successfully uploaded {count} feedback records!'
-              )}
-              style={{ display: 'none' }}
-            />
+          <button 
+            className="upload-button-container"
+            onClick={() => navigate('/upload')}
+          >
             <span className="button-text">Upload Feedback 📋</span>
-          </label>
-
-          <label className="upload-button-container courses-upload">
-            <input
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              onChange={(e) => handleFileUpload(
-                e, 
-                '/api/upload-courses', 
-                'Successfully uploaded {count} courses!'
-              )}
-              style={{ display: 'none' }}
-            />
-            <span className="button-text">Upload Courses 📚</span>
-          </label>
+          </button>
 
           <button 
             className="start-analysis-btn"
@@ -187,7 +167,7 @@ const Home = () => {
               </div>
               <div className="analysis-option-card" onClick={() => {
                 setShowAnalysisOptions(false);
-                navigate('/visualize');
+                setShowVisualizationOptions(true);
               }}>
                 <div className="option-icon">📈</div>
                 <h4>Visualization</h4>
@@ -200,6 +180,41 @@ const Home = () => {
                 <div className="option-icon">🏫</div>
                 <h4>School-wise Reports</h4>
                 <p>Generate comprehensive reports for all departments within a school in Excel or PDF format</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Visualization Options Sub-Modal */}
+      {showVisualizationOptions && (
+        <div className="modal-overlay" onClick={() => setShowVisualizationOptions(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Choose Visualization Type</h3>
+              <button 
+                className="modal-close"
+                onClick={() => setShowVisualizationOptions(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="analysis-option-card" onClick={() => {
+                setShowVisualizationOptions(false);
+                navigate('/visualize?mode=radar');
+              }}>
+                <div className="option-icon">📊</div>
+                <h4>Radar Chart Generation</h4>
+                <p>Generate radar charts showing category-wise performance (Engineering/Arts) with department breakdown</p>
+              </div>
+              <div className="analysis-option-card" onClick={() => {
+                setShowVisualizationOptions(false);
+                navigate('/visualize?mode=department');
+              }}>
+                <div className="option-icon">📈</div>
+                <h4>Visualize</h4>
+                <p>Department-wise visualization with detailed performance metrics and insights</p>
               </div>
             </div>
           </div>

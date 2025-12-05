@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './index.css';
-const SERVER_URL = process.env.REACT_APP_SERVER_URL || "https://iqac-backend-1.onrender.com";
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:5000";
 
 const NON_SCORING_SECTIONS = new Set([
     'COURSE CONTENT AND STRUCTURE',
@@ -103,11 +103,12 @@ const AnalysisResults = () => {
             console.log('All available keys in analysisData:', Object.keys(analysisData));
             
             // Use the actual selected values from the user's filters
-            // These come from the Analysis component where user selects degree, department, batch, course
+            // These come from the Analysis component where user selects degree, currentAY, semester, courseOfferingDept, course
             const paramsObj = {
-                degree: analysisData.degree || 'B.Tech.',
-                dept: analysisData.department || 'CSE', 
-                batch: analysisData.batch || '2022',
+                degree: analysisData.degree || '',
+                currentAY: analysisData.currentAY || '',
+                semester: analysisData.semester || '',
+                courseOfferingDept: analysisData.courseOfferingDept || '',
                 course: analysisData.course_code || analysisData.course || '',
                 staffId: analysisData.staff_id || analysisData.staffId || ''
             };
@@ -115,13 +116,19 @@ const AnalysisResults = () => {
             if (cgpaFilter && cgpaFilter !== 'all') {
                 paramsObj.cgpa = cgpaFilter;
             }
-            const params = new URLSearchParams(paramsObj);
+            const params = new URLSearchParams();
+            Object.keys(paramsObj).forEach(key => {
+                if (paramsObj[key]) {
+                    params.append(key, encodeURIComponent(paramsObj[key]));
+                }
+            });
             
             console.log('Loading comments analysis with params:', params.toString());
             console.log('Individual param values:', {
-                degree: analysisData.degree || 'B.Tech. (default)',
-                dept: analysisData.department || 'CSE (default)',
-                batch: analysisData.batch || '2022 (default)',
+                degree: analysisData.degree || 'NOT_FOUND',
+                currentAY: analysisData.currentAY || 'NOT_FOUND',
+                semester: analysisData.semester || 'NOT_FOUND',
+                courseOfferingDept: analysisData.courseOfferingDept || 'NOT_FOUND',
                 course: analysisData.course_code || analysisData.course || 'NOT_FOUND',
                 staffId: analysisData.staff_id || analysisData.staffId || 'NOT_FOUND'
             });

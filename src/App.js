@@ -33,6 +33,7 @@ import AnalysisResults from './components/AnalysisResults';
 import Visualize from './components/visualize';
 import Login from './components/Login';
 import SchoolWise from './components/school_wise';
+import UploadFile from './components/upload_file';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -96,6 +97,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <SchoolWise />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/upload" 
+            element={
+              <ProtectedRoute>
+                <UploadFile />
               </ProtectedRoute>
             } 
           />

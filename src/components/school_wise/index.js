@@ -2,12 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './index.css';
 
-const SERVER_URL = process.env.REACT_APP_SERVER_URL || "https://iqac-backend-1.onrender.com";
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:5000";
 
 const SchoolWise = () => {
     const navigate = useNavigate();
-    const [schools, setSchools] = useState([]);
-    const [selectedSchool, setSelectedSchool] = useState('');
+    const [filters, setFilters] = useState({
+        currentAY: '',
+        semester: '',
+        school: ''
+    });
+    const [options, setOptions] = useState({
+        currentAYs: [],
+        semesters: [],
+        schools: []
+    });
     const [departments, setDepartments] = useState([]);
     const [reportFormat, setReportFormat] = useState('excel');
     const [loading, setLoading] = useState(false);
@@ -20,19 +28,59 @@ const SchoolWise = () => {
         navigate('/login');
     };
 
-    // Fetch schools on component mount
+    // Fetch schools and current AY on component mount
     useEffect(() => {
         fetchSchools();
+        fetchCurrentAY();
     }, []);
+
+    // Fetch semesters when current AY changes
+    useEffect(() => {
+        if (filters.currentAY) {
+            fetchSemesters(filters.currentAY);
+            setFilters(prev => ({
+                ...prev,
+                semester: ''
+            }));
+        } else {
+            setOptions(prev => ({ ...prev, semesters: [] }));
+        }
+    }, [filters.currentAY]);
 
     // Fetch departments when school changes
     useEffect(() => {
-        if (selectedSchool) {
-            fetchDepartments(selectedSchool);
+        if (filters.school) {
+            fetchDepartments(filters.school);
         } else {
             setDepartments([]);
         }
-    }, [selectedSchool]);
+    }, [filters.school]);
+
+    const fetchCurrentAY = async () => {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/visualization/current-ay`);
+            const data = await response.json();
+            setOptions(prev => ({ ...prev, currentAYs: Array.isArray(data) ? data : [] }));
+        } catch (error) {
+            console.error('Error fetching current AY:', error);
+            setOptions(prev => ({ ...prev, currentAYs: [] }));
+        }
+    };
+
+    const fetchSemesters = async (currentAY) => {
+        try {
+            const params = new URLSearchParams();
+            if (currentAY) {
+                params.append('currentAY', encodeURIComponent(currentAY));
+            }
+            const response = await fetch(`${SERVER_URL}/api/visualization/semesters?${params.toString()}`);
+            const data = await response.json();
+            setOptions(prev => ({ ...prev, semesters: Array.isArray(data) ? data : [] }));
+        } catch (error) {
+            console.error('Error fetching semesters:', error);
+            setOptions(prev => ({ ...prev, semesters: [] }));
+        }
+    };
 
     const fetchSchools = async () => {
         try {
@@ -44,7 +92,7 @@ const SchoolWise = () => {
             }
             const data = await response.json();
             if (Array.isArray(data)) {
-                setSchools(data);
+                setOptions(prev => ({ ...prev, schools: data }));
             } else {
                 throw new Error('Invalid response format');
             }
@@ -75,8 +123,8 @@ const SchoolWise = () => {
 
 
     const handleGenerateReport = async () => {
-        if (!selectedSchool) {
-            alert('Please select a school.');
+        if (!filters.currentAY || !filters.semester || !filters.school) {
+            alert('Please select Current Academic Year, Semester, and School.');
             return;
         }
 
@@ -86,7 +134,9 @@ const SchoolWise = () => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    school: selectedSchool,
+                    school: filters.school,
+                    currentAY: filters.currentAY,
+                    semester: filters.semester,
                     format: reportFormat
                 })
             });
@@ -101,7 +151,7 @@ const SchoolWise = () => {
             const a = document.createElement('a');
             a.href = url;
             const fileExtension = reportFormat === 'pdf' ? 'pdf' : 'xlsx';
-            const safeSchoolName = selectedSchool.replace(/[^a-z0-9]/gi, '_');
+            const safeSchoolName = filters.school.replace(/[^a-z0-9]/gi, '_');
             a.download = `${safeSchoolName}_school_report.${fileExtension}`;
             document.body.appendChild(a);
             a.click();
@@ -116,8 +166,8 @@ const SchoolWise = () => {
     };
 
     const handleGenerateNegativeCommentsExcel = async () => {
-        if (!selectedSchool) {
-            alert('Please select a school.');
+        if (!filters.currentAY || !filters.semester || !filters.school) {
+            alert('Please select Current Academic Year, Semester, and School.');
             return;
         }
 
@@ -127,7 +177,9 @@ const SchoolWise = () => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    school: selectedSchool
+                    school: filters.school,
+                    currentAY: filters.currentAY,
+                    semester: filters.semester
                 })
             });
 
@@ -144,7 +196,7 @@ const SchoolWise = () => {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            const safeSchoolName = selectedSchool.replace(/[^a-z0-9]/gi, '_');
+            const safeSchoolName = filters.school.replace(/[^a-z0-9]/gi, '_');
             a.download = `${safeSchoolName}_negative_comments_report.xlsx`;
             document.body.appendChild(a);
             a.click();
@@ -195,13 +247,18 @@ const SchoolWise = () => {
                         <label htmlFor="school-select">School *</label>
                         <select
                             id="school-select"
-                            value={selectedSchool}
-                            onChange={(e) => setSelectedSchool(e.target.value)}
+                            value={filters.school}
+                            onChange={(e) => setFilters({
+                                ...filters,
+                                school: e.target.value,
+                                currentAY: '',
+                                semester: ''
+                            })}
                             disabled={loadingSchools}
                             className="filter-select"
                         >
                             <option value="">Select School</option>
-                            {schools.map((school, index) => (
+                            {options.schools.map((school, index) => (
                                 <option key={index} value={school}>
                                     {school}
                                 </option>
@@ -210,9 +267,47 @@ const SchoolWise = () => {
                         {loadingSchools && <span className="loading-text">Loading schools...</span>}
                     </div>
 
-                    {selectedSchool && (
+                    <div className="filter-group">
+                        <label htmlFor="current-ay-select">Current Academic Year *</label>
+                        <select
+                            id="current-ay-select"
+                            value={filters.currentAY}
+                            onChange={(e) => setFilters({
+                                ...filters,
+                                currentAY: e.target.value,
+                                semester: ''
+                            })}
+                            className="filter-select"
+                        >
+                            <option value="">Select Academic Year</option>
+                            {options.currentAYs.map(ay => (
+                                <option key={ay} value={ay}>{ay}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="filter-group">
+                        <label htmlFor="semester-select">Semester *</label>
+                        <select
+                            id="semester-select"
+                            value={filters.semester}
+                            onChange={(e) => setFilters({
+                                ...filters,
+                                semester: e.target.value
+                            })}
+                            disabled={!filters.currentAY}
+                            className="filter-select"
+                        >
+                            <option value="">Select Semester</option>
+                            {options.semesters.map(sem => (
+                                <option key={sem} value={sem}>{sem}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {filters.school && (
                         <div className="filter-group">
-                            <label>Departments in {selectedSchool}</label>
+                            <label>Departments in {filters.school}</label>
                             <div className="departments-list">
                                 {loadingDepartments ? (
                                     <span className="loading-text">Loading departments...</span>
@@ -248,7 +343,7 @@ const SchoolWise = () => {
                         <button
                             className="generate-btn"
                             onClick={handleGenerateReport}
-                            disabled={!selectedSchool || loading}
+                            disabled={!filters.currentAY || !filters.semester || !filters.school || loading}
                         >
                             {loading ? (
                                 <>
@@ -265,7 +360,7 @@ const SchoolWise = () => {
                         <button
                             className="generate-btn"
                             onClick={handleGenerateNegativeCommentsExcel}
-                            disabled={!selectedSchool || loadingNegativeCommentsExcel}
+                            disabled={!filters.currentAY || !filters.semester || !filters.school || loadingNegativeCommentsExcel}
                             style={{ marginLeft: '1rem', backgroundColor: '#28a745' }}
                         >
                             {loadingNegativeCommentsExcel ? (

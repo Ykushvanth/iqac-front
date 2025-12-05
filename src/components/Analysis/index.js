@@ -1,19 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import './index.css';
-const SERVER_URL = process.env.REACT_APP_SERVER_URL || "https://iqac-backend-1.onrender.com";
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:5000";
 
 const Analysis = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const [filters, setFilters] = useState({
         degree: '',
-        department: '',
+        currentAY: '',
+        semester: '',
+        courseOfferingDept: '',
         course: ''
     });
     
     const [options, setOptions] = useState({
         degrees: [],
-        departments: [],
+        currentAYs: [],
+        semesters: [],
+        courseOfferingDepts: [],
         courses: []
     });
 
@@ -24,6 +29,48 @@ const Analysis = () => {
     const [loadingDeptReport, setLoadingDeptReport] = useState(false);
     const [loadingNegativeCommentsExcel, setLoadingNegativeCommentsExcel] = useState(false);
     const [selectedBatch, setSelectedBatch] = useState('all'); // For batch filtering in reports
+    const [isRestoring, setIsRestoring] = useState(false); // Flag to prevent reset during restoration
+    const prevLocationRef = useRef(location.pathname); // Track previous location
+    const hasRestoredRef = useRef(false); // Track if we've restored on this mount
+    const isRestoringRef = useRef(false); // Ref to track restoration state (more reliable than state)
+    const prevCourseRef = useRef(''); // Track previous course to detect changes
+
+    // Cache helper functions
+    const CACHE_PREFIX = 'analysis_cache_';
+    const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+    const getCache = (key) => {
+        try {
+            const cached = localStorage.getItem(CACHE_PREFIX + key);
+            if (!cached) return null;
+            
+            const { data, timestamp } = JSON.parse(cached);
+            const now = Date.now();
+            
+            // Check if cache is expired
+            if (now - timestamp > CACHE_EXPIRY) {
+                localStorage.removeItem(CACHE_PREFIX + key);
+                return null;
+            }
+            
+            return data;
+        } catch (error) {
+            console.error('Error reading cache:', error);
+            return null;
+        }
+    };
+
+    const setCache = (key, data) => {
+        try {
+            const cacheData = {
+                data,
+                timestamp: Date.now()
+            };
+            localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(cacheData));
+        } catch (error) {
+            console.error('Error setting cache:', error);
+        }
+    };
 
     const handleLogout = () => {
         localStorage.removeItem('user');
@@ -40,8 +87,8 @@ const Analysis = () => {
     };
 
     const handleGenerateDepartmentReport = async () => {
-        if (!filters.degree || !filters.department) {
-            alert('Please select Degree and Department.');
+        if (!filters.degree || !filters.currentAY || !filters.semester || !filters.courseOfferingDept) {
+            alert('Please select Degree, Current AY, Semester, and Course Offering Department.');
             return;
         }
         
@@ -58,7 +105,9 @@ const Analysis = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     degree: filters.degree,
-                    dept: filters.department,
+                    currentAY: filters.currentAY,
+                    semester: filters.semester,
+                    courseOfferingDept: filters.courseOfferingDept,
                     batch: selectedBatch,
                     format: reportFormat
                 })
@@ -72,7 +121,8 @@ const Analysis = () => {
             const a = document.createElement('a');
             a.href = url;
             const fileExtension = reportFormat === 'pdf' ? 'pdf' : 'xlsx';
-            a.download = `department_feedback_${filters.department}_${selectedBatch}.${fileExtension}`;
+            const safeDeptName = (filters.courseOfferingDept || 'department').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            a.download = `department_feedback_${safeDeptName}_${selectedBatch}.${fileExtension}`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
@@ -86,8 +136,8 @@ const Analysis = () => {
     };
 
     const handleGenerateNegativeCommentsExcel = async () => {
-        if (!filters.degree || !filters.department) {
-            alert('Please select Degree and Department.');
+        if (!filters.degree || !filters.currentAY || !filters.semester || !filters.courseOfferingDept) {
+            alert('Please select Degree, Current AY, Semester, and Course Offering Department.');
             return;
         }
         
@@ -98,10 +148,10 @@ const Analysis = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     degree: filters.degree,
-                    dept: filters.department,
-                    batch: selectedBatch === 'all' ? 'ALL' : selectedBatch,
-                    academicYear: '2025-26',
-                    semester: 'Odd'
+                    currentAY: filters.currentAY,
+                    semester: filters.semester,
+                    courseOfferingDept: filters.courseOfferingDept,
+                    batch: selectedBatch === 'all' ? 'ALL' : selectedBatch
                 })
             });
             
@@ -114,7 +164,8 @@ const Analysis = () => {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `department_negative_comments_${filters.department}_${selectedBatch === 'all' ? 'all_batches' : selectedBatch}.xlsx`;
+            const safeDeptName = (filters.courseOfferingDept || 'department').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            a.download = `department_negative_comments_${safeDeptName}_${selectedBatch === 'all' ? 'all_batches' : selectedBatch}.xlsx`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
@@ -128,8 +179,8 @@ const Analysis = () => {
     };
 
     const handleGenerateDepartmentAllBatches = async () => {
-        if (!filters.degree || !filters.department) {
-            alert('Please select Degree and Department.');
+        if (!filters.degree || !filters.currentAY || !filters.semester || !filters.courseOfferingDept) {
+            alert('Please select Degree, Current AY, Semester, and Course Offering Department.');
             return;
         }
         try {
@@ -139,7 +190,9 @@ const Analysis = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     degree: filters.degree,
-                    dept: filters.department,
+                    currentAY: filters.currentAY,
+                    semester: filters.semester,
+                    courseOfferingDept: filters.courseOfferingDept,
                     format: reportFormat
                 })
             });
@@ -152,7 +205,8 @@ const Analysis = () => {
             const a = document.createElement('a');
             a.href = url;
             const fileExtension = reportFormat === 'pdf' ? 'pdf' : 'xlsx';
-            a.download = `department_feedback_${filters.department}_ALL_BATCHES.${fileExtension}`;
+            const safeDeptName = (filters.courseOfferingDept || 'department').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            a.download = `department_feedback_${safeDeptName}_ALL_BATCHES.${fileExtension}`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
@@ -165,71 +219,323 @@ const Analysis = () => {
         }
     };
 
-    // Fetch initial degree options and restore state
-    useEffect(() => {
-        fetchDegrees();
+    // Function to restore filters and options from localStorage
+    const restoreFiltersFromStorage = async () => {
+        const savedFilters = localStorage.getItem('analysisFilters');
+        const savedFaculty = localStorage.getItem('savedFaculty');
+        const savedStaffIdSearch = localStorage.getItem('savedStaffIdSearch');
         
-        // Restore previous state if returning from results page
-        const savedFilters = sessionStorage.getItem('analysisFilters');
-        const savedFaculty = sessionStorage.getItem('savedFaculty');
-        const savedStaffIdSearch = sessionStorage.getItem('savedStaffIdSearch');
+        if (!savedFilters) {
+            console.log('No saved filters found in localStorage');
+            return false; // No saved filters to restore
+        }
         
-        if (savedFilters) {
-            try {
-                const filters = JSON.parse(savedFilters);
-                setFilters(filters);
-                
-                // Restore faculty data if available
-                if (savedFaculty) {
-                    const faculty = JSON.parse(savedFaculty);
-                    setFaculty(faculty);
-                }
+        try {
+            console.log('Starting filter restoration...');
+            setIsRestoring(true);
+            isRestoringRef.current = true; // Set ref immediately
+            const restoredFilters = JSON.parse(savedFilters);
+            console.log('Restored filters from localStorage:', restoredFilters);
                 
                 // Restore staff ID search if available
                 if (savedStaffIdSearch) {
                     setStaffIdSearch(savedStaffIdSearch);
                 }
                 
-                // Clear saved data after restoring
-                sessionStorage.removeItem('analysisFilters');
-                sessionStorage.removeItem('savedFaculty');
-                sessionStorage.removeItem('savedStaffIdSearch');
-            } catch (error) {
-                console.error('Error restoring analysis state:', error);
+            // Restore dependent options sequentially based on restored filters
+            if (restoredFilters.degree) {
+                console.log('Loading options for degree:', restoredFilters.degree);
+                await fetchCurrentAY(restoredFilters.degree);
+                
+                if (restoredFilters.currentAY) {
+                    await fetchSemesters(restoredFilters.degree, restoredFilters.currentAY);
+                    
+                    if (restoredFilters.semester) {
+                        await fetchCourseOfferingDepts(restoredFilters.degree, restoredFilters.currentAY, restoredFilters.semester);
+                        
+                        if (restoredFilters.courseOfferingDept) {
+                            await fetchCourses(restoredFilters.degree, restoredFilters.currentAY, restoredFilters.semester, restoredFilters.courseOfferingDept);
+                        }
+                    }
+                }
             }
+            
+            // After all options are loaded, restore filters (while isRestoring is still true)
+            // Use a small delay to ensure isRestoring flag is properly set before setting filters
+            console.log('Setting filters to:', restoredFilters);
+            // Update course ref to prevent false course change detection during restoration
+            if (restoredFilters.course) {
+                prevCourseRef.current = restoredFilters.course;
+            }
+            setTimeout(() => {
+                setFilters(restoredFilters);
+                console.log('Filters set successfully');
+            }, 100);
+            
+            // Restore faculty data if available (do this after filters are set, with delay to avoid useEffect interference)
+            if (savedFaculty) {
+                try {
+                    const faculty = JSON.parse(savedFaculty);
+                    console.log('Restoring faculty list:', faculty.length, 'items');
+                    // Use setTimeout to ensure filters are set first and avoid useEffect interference
+                    setTimeout(() => {
+                        setFaculty(faculty);
+                        console.log('Faculty list restored:', faculty.length, 'items');
+                    }, 300);
+            } catch (error) {
+                    console.error('Error parsing saved faculty:', error);
+                }
+            } else if (restoredFilters.course && restoredFilters.degree && restoredFilters.currentAY && restoredFilters.semester && restoredFilters.courseOfferingDept) {
+                // If no saved faculty but course is selected, fetch faculty after restoration completes
+                setTimeout(() => {
+                    console.log('No saved faculty, fetching faculty for restored filters...');
+                    fetchFaculty(
+                        restoredFilters.degree,
+                        restoredFilters.currentAY,
+                        restoredFilters.semester,
+                        restoredFilters.courseOfferingDept,
+                        restoredFilters.course,
+                        savedStaffIdSearch || ''
+                    );
+                }, 1000);
+            }
+            
+            // Clear restoration flag after a delay (long enough for faculty to be restored)
+            setTimeout(() => {
+                setIsRestoring(false);
+                isRestoringRef.current = false; // Clear ref
+                console.log('Filter restoration complete');
+            }, 3000);
+            
+            return true;
+        } catch (error) {
+            console.error('Error restoring analysis state:', error);
+            setIsRestoring(false);
+            isRestoringRef.current = false; // Clear ref on error
+            return false;
+        }
+    };
+
+    // Fetch initial degree options on mount
+    useEffect(() => {
+        fetchDegrees();
+        // Restore filters on initial mount if available
+        const savedFilters = localStorage.getItem('analysisFilters');
+        if (savedFilters) {
+            console.log('Initial mount: Restoring filters from localStorage');
+            restoreFiltersFromStorage();
+            hasRestoredRef.current = true;
         }
     }, []);
 
-    // Fetch departments when degree changes
+    // Restore filters whenever navigating back to this page
     useEffect(() => {
+        const currentPath = location.pathname;
+        const prevPath = prevLocationRef.current;
+        
+        // Always restore when navigating to /analysis if we have saved filters
+        if (currentPath === '/analysis') {
+            // Check if we're coming back from results page
+            const comingBackFromResults = sessionStorage.getItem('navigatingToResults') === 'true';
+            const savedFilters = localStorage.getItem('analysisFilters');
+            
+            if (savedFilters) {
+                const parsedFilters = JSON.parse(savedFilters);
+                
+                // Check if current filters match saved filters
+                const filtersMatch = filters.degree === parsedFilters.degree && 
+                                    filters.currentAY === parsedFilters.currentAY && 
+                                    filters.semester === parsedFilters.semester && 
+                                    filters.courseOfferingDept === parsedFilters.courseOfferingDept && 
+                                    filters.course === parsedFilters.course;
+                
+                // Restore if:
+                // 1. We're coming back from results page, OR
+                // 2. Filters are empty, OR
+                // 3. Filters don't match saved filters (but only if we haven't restored recently)
+                const filtersEmpty = !filters.degree && !filters.currentAY && !filters.semester && !filters.courseOfferingDept && !filters.course;
+                
+                if (comingBackFromResults || filtersEmpty || (!filtersMatch && !hasRestoredRef.current)) {
+                    console.log('Restoring filters from localStorage...', { comingBackFromResults, filtersEmpty, filtersMatch });
+                    hasRestoredRef.current = true;
+                    // Clear the flag
+                    if (comingBackFromResults) {
+                        sessionStorage.removeItem('navigatingToResults');
+                    }
+                    restoreFiltersFromStorage();
+                }
+            }
+        }
+        
+        // Update previous location
+        prevLocationRef.current = currentPath;
+    }, [location.pathname]);
+
+    // Fetch current AY when degree changes
+    useEffect(() => {
+        if (isRestoring || isRestoringRef.current) {
+            console.log('Skipping degree useEffect during restoration');
+            return; // Skip reset during restoration
+        }
+        
         if (filters.degree) {
-            fetchDepartments(filters.degree);
-        }
-    }, [filters.degree]);
-
-    // Fetch courses when department changes
-    useEffect(() => {
-        if (filters.department && filters.degree) {
-            fetchCourses(filters.degree, filters.department);
-        }
-    }, [filters.department, filters.degree]);
-
-    // Fetch faculty when course or staffIdSearch changes
-    useEffect(() => {
-        if (filters.course && filters.degree && filters.department) {
-            fetchFaculty(filters.degree, filters.department, filters.course, staffIdSearch);
+            fetchCurrentAY(filters.degree);
+            // Only reset dependent filters if they're actually changing (not during restoration)
+            setFilters(prev => {
+                // Check if degree actually changed (not just being set during restoration)
+                if (prev.degree === filters.degree) {
+                    return prev; // No change, don't reset
+                }
+                return {
+                    ...prev,
+                    currentAY: '',
+                    semester: '',
+                    courseOfferingDept: '',
+                    course: ''
+                };
+            });
         } else {
+            setOptions(prev => ({ ...prev, currentAYs: [], semesters: [], courseOfferingDepts: [], courses: [] }));
+        }
+    }, [filters.degree, isRestoring]);
+
+    // Fetch semesters when current AY changes
+    useEffect(() => {
+        if (isRestoring || isRestoringRef.current) {
+            console.log('Skipping currentAY useEffect during restoration');
+            return; // Skip reset during restoration
+        }
+        
+        if (filters.currentAY && filters.degree) {
+            fetchSemesters(filters.degree, filters.currentAY);
+            // Only reset if currentAY actually changed
+            setFilters(prev => {
+                if (prev.currentAY === filters.currentAY) {
+                    return prev; // No change, don't reset
+                }
+                return {
+                    ...prev,
+                    semester: '',
+                    courseOfferingDept: '',
+                    course: ''
+                };
+            });
+        } else {
+            setOptions(prev => ({ ...prev, semesters: [], courseOfferingDepts: [], courses: [] }));
+        }
+    }, [filters.currentAY, filters.degree, isRestoring]);
+
+    // Fetch course offering departments when semester changes
+    useEffect(() => {
+        if (isRestoring || isRestoringRef.current) {
+            console.log('Skipping semester useEffect during restoration');
+            return; // Skip reset during restoration
+        }
+        
+        if (filters.semester && filters.degree && filters.currentAY) {
+            fetchCourseOfferingDepts(filters.degree, filters.currentAY, filters.semester);
+            // Only reset if semester actually changed
+            setFilters(prev => {
+                if (prev.semester === filters.semester) {
+                    return prev; // No change, don't reset
+                }
+                return {
+                    ...prev,
+                    courseOfferingDept: '',
+                    course: ''
+                };
+            });
+        } else {
+            setOptions(prev => ({ ...prev, courseOfferingDepts: [], courses: [] }));
+        }
+    }, [filters.semester, filters.degree, filters.currentAY, isRestoring]);
+
+    // Fetch courses when course offering dept changes
+    useEffect(() => {
+        if (filters.courseOfferingDept && filters.degree && filters.currentAY && filters.semester) {
+            fetchCourses(filters.degree, filters.currentAY, filters.semester, filters.courseOfferingDept);
+        } else {
+            setOptions(prev => ({ ...prev, courses: [] }));
+        }
+    }, [filters.courseOfferingDept, filters.degree, filters.currentAY, filters.semester]);
+
+    // Fetch faculty when course or staffIdSearch changes (but not during restoration)
+    useEffect(() => {
+        if (isRestoring || isRestoringRef.current) {
+            console.log('Skipping faculty fetch during restoration');
+            return; // Skip during restoration to preserve restored faculty
+        }
+        
+        if (filters.course && filters.degree && filters.currentAY && filters.semester && filters.courseOfferingDept) {
+            // Check if course has changed - if so, clear faculty and fetch new data
+            const courseChanged = prevCourseRef.current !== filters.course;
+            
+            if (courseChanged) {
+                console.log('Course changed from', prevCourseRef.current, 'to', filters.course, '- clearing and fetching new faculty');
+                setFaculty([]); // Clear existing faculty when course changes
+                prevCourseRef.current = filters.course; // Update ref
+                // Fetch new faculty immediately after course change
+                console.log('Fetching faculty for new course:', filters.course);
+                fetchFaculty(filters.degree, filters.currentAY, filters.semester, filters.courseOfferingDept, filters.course, staffIdSearch);
+            } else if (faculty.length === 0) {
+                // If no faculty loaded and course hasn't changed, fetch faculty
+                console.log('No faculty loaded, fetching faculty for filters:', filters);
+                fetchFaculty(filters.degree, filters.currentAY, filters.semester, filters.courseOfferingDept, filters.course, staffIdSearch);
+            } else {
+                console.log('Faculty already loaded for current course, skipping fetch');
+            }
+        } else {
+            // Only clear faculty if filters are actually empty (not during restoration)
+            if (!isRestoring && faculty.length > 0) {
+                console.log('Clearing faculty - filters are empty');
             setFaculty([]);
         }
-    }, [filters.course, filters.degree, filters.department, staffIdSearch]);
+            // Reset course ref when course is cleared
+            if (!filters.course) {
+                prevCourseRef.current = '';
+            }
+        }
+    }, [filters.course, filters.degree, filters.currentAY, filters.semester, filters.courseOfferingDept, staffIdSearch, isRestoring]);
+
+    // Save filters to localStorage whenever they change (but not during restoration)
+    useEffect(() => {
+        if (!isRestoring) {
+            localStorage.setItem('analysisFilters', JSON.stringify(filters));
+        }
+    }, [filters, isRestoring]);
+
+    // Save staff ID search to localStorage whenever it changes
+    useEffect(() => {
+        if (!isRestoring) {
+            localStorage.setItem('savedStaffIdSearch', staffIdSearch);
+        }
+    }, [staffIdSearch, isRestoring]);
+
+    // Save faculty list to localStorage whenever it changes (but not during restoration)
+    useEffect(() => {
+        if (!isRestoring && faculty.length > 0) {
+            localStorage.setItem('savedFaculty', JSON.stringify(faculty));
+        }
+    }, [faculty, isRestoring]);
 
     const fetchDegrees = async () => {
         try {
-            console.log('Fetching degrees...');
+            // Check cache first
+            const cacheKey = 'degrees';
+            const cachedData = getCache(cacheKey);
+            
+            if (cachedData) {
+                console.log('Using cached degrees');
+                setOptions(prev => ({ ...prev, degrees: cachedData }));
+                return;
+            }
+            
+            console.log('Fetching degrees from API...');
             const response = await fetch(`${SERVER_URL}/api/analysis/degrees`);
             const data = await response.json();
             console.log('Degrees received:', data);
             if (Array.isArray(data)) {
+                setCache(cacheKey, data); // Cache the response
                 setOptions(prev => ({ ...prev, degrees: data }));
             } else {
                 console.error('Invalid degrees data:', data);
@@ -239,38 +545,156 @@ const Analysis = () => {
         }
     };
 
-    const fetchDepartments = async (degree) => {
+    const fetchCurrentAY = async (degree) => {
+        if (!degree) return;
+        
         try {
-            const response = await fetch(`${SERVER_URL}/api/analysis/departments?degree=${degree}`);
+            // Check cache first
+            const cacheKey = `currentAY_${degree}`;
+            const cachedData = getCache(cacheKey);
+            
+            if (cachedData) {
+                console.log('Using cached current AY for degree:', degree);
+                setOptions(prev => ({ ...prev, currentAYs: cachedData }));
+                return;
+            }
+            
+            console.log('Fetching current AY from API for degree:', degree);
+            const response = await fetch(`${SERVER_URL}/api/analysis/current-ay?degree=${encodeURIComponent(degree)}`);
             const data = await response.json();
-            setOptions(prev => ({ ...prev, departments: data }));
+            const result = Array.isArray(data) ? data : [];
+            setCache(cacheKey, result); // Cache the response
+            setOptions(prev => ({ ...prev, currentAYs: result }));
         } catch (error) {
-            console.error('Error fetching departments:', error);
+            console.error('Error fetching current AY:', error);
+            setOptions(prev => ({ ...prev, currentAYs: [] }));
         }
     };
 
-    const fetchCourses = async (degree, department) => {
+    const fetchSemesters = async (degree, currentAY) => {
+        if (!degree || !currentAY) return;
+        
         try {
-            const response = await fetch(
-                `${SERVER_URL}/api/analysis/courses?degree=${degree}&dept=${department}`
-            );
+            // Check cache first
+            const cacheKey = `semesters_${degree}_${currentAY}`;
+            const cachedData = getCache(cacheKey);
+            
+            if (cachedData) {
+                console.log('Using cached semesters for degree:', degree, 'currentAY:', currentAY);
+                setOptions(prev => ({ ...prev, semesters: cachedData }));
+                return;
+            }
+            
+            console.log('Fetching semesters from API for degree:', degree, 'currentAY:', currentAY);
+            const params = new URLSearchParams({ degree: encodeURIComponent(degree) });
+            if (currentAY) {
+                params.append('currentAY', encodeURIComponent(currentAY));
+            }
+            const response = await fetch(`${SERVER_URL}/api/analysis/semesters?${params.toString()}`);
             const data = await response.json();
-            setOptions(prev => ({ ...prev, courses: data }));
+            const result = Array.isArray(data) ? data : [];
+            setCache(cacheKey, result); // Cache the response
+            setOptions(prev => ({ ...prev, semesters: result }));
+        } catch (error) {
+            console.error('Error fetching semesters:', error);
+            setOptions(prev => ({ ...prev, semesters: [] }));
+        }
+    };
+
+    const fetchCourseOfferingDepts = async (degree, currentAY, semester) => {
+        if (!degree || !currentAY || !semester) return;
+        
+        try {
+            // Check cache first
+            const cacheKey = `courseOfferingDepts_${degree}_${currentAY}_${semester}`;
+            const cachedData = getCache(cacheKey);
+            
+            if (cachedData) {
+                console.log('Using cached course offering depts for degree:', degree, 'currentAY:', currentAY, 'semester:', semester);
+                setOptions(prev => ({ ...prev, courseOfferingDepts: cachedData }));
+                return;
+            }
+            
+            console.log('Fetching course offering depts from API...');
+            const params = new URLSearchParams({ degree: encodeURIComponent(degree) });
+            if (currentAY) params.append('currentAY', encodeURIComponent(currentAY));
+            if (semester) params.append('semester', encodeURIComponent(semester));
+            const response = await fetch(`${SERVER_URL}/api/analysis/course-offering-depts?${params.toString()}`);
+            const data = await response.json();
+            const result = Array.isArray(data) ? data : [];
+            setCache(cacheKey, result); // Cache the response
+            setOptions(prev => ({ ...prev, courseOfferingDepts: result }));
+        } catch (error) {
+            console.error('Error fetching course offering departments:', error);
+            setOptions(prev => ({ ...prev, courseOfferingDepts: [] }));
+        }
+    };
+
+    const fetchCourses = async (degree, currentAY, semester, courseOfferingDept) => {
+        if (!degree || !currentAY || !semester || !courseOfferingDept) return;
+        
+        try {
+            // Check cache first
+            const cacheKey = `courses_${degree}_${currentAY}_${semester}_${courseOfferingDept}`;
+            const cachedData = getCache(cacheKey);
+            
+            if (cachedData) {
+                console.log('Using cached courses...');
+                setOptions(prev => ({ ...prev, courses: cachedData }));
+                return;
+            }
+            
+            console.log('Fetching courses from API...');
+            const params = new URLSearchParams({ degree: encodeURIComponent(degree) });
+            if (currentAY) params.append('currentAY', encodeURIComponent(currentAY));
+            if (semester) params.append('semester', encodeURIComponent(semester));
+            if (courseOfferingDept) params.append('courseOfferingDept', encodeURIComponent(courseOfferingDept));
+            const response = await fetch(`${SERVER_URL}/api/analysis/course-names?${params.toString()}`);
+            const data = await response.json();
+            const result = Array.isArray(data) ? data : [];
+            setCache(cacheKey, result); // Cache the response
+            setOptions(prev => ({ ...prev, courses: result }));
         } catch (error) {
             console.error('Error fetching courses:', error);
+            setOptions(prev => ({ ...prev, courses: [] }));
         }
     };
 
-    const fetchFaculty = async (degree, department, course, staffId) => {
+    const fetchFaculty = async (degree, currentAY, semester, courseOfferingDept, course, staffId) => {
+        if (!degree || !currentAY || !semester || !courseOfferingDept || !course) return;
+        
         try {
-            const params = new URLSearchParams({ degree, dept: department, course });
+            // Build cache key including staffId filter
+            const staffIdPart = staffId && staffId.trim() !== '' ? `_${staffId.trim()}` : '';
+            const cacheKey = `faculty_${degree}_${currentAY}_${semester}_${courseOfferingDept}_${course}${staffIdPart}`;
+            
+            // Check cache first
+            const cachedData = getCache(cacheKey);
+            
+            if (cachedData) {
+                console.log('Using cached faculty data...');
+                setFaculty(cachedData);
+                return;
+            }
+            
+            console.log('Fetching faculty from API...');
+            // Build params with all required filters for new hierarchy
+            const params = new URLSearchParams({ 
+                degree: encodeURIComponent(degree),
+                currentAY: encodeURIComponent(currentAY),
+                semester: encodeURIComponent(semester),
+                courseOfferingDept: encodeURIComponent(courseOfferingDept),
+                course: encodeURIComponent(course)
+            });
+            // Optional staff ID filter
             if (staffId && staffId.trim() !== '') {
                 params.append('staffId', staffId.trim());
             }
             const response = await fetch(`${SERVER_URL}/api/analysis/faculty?${params.toString()}`);
             const data = await response.json();
-            if (Array.isArray(data)) setFaculty(data);
-            else setFaculty([]);
+            const result = Array.isArray(data) ? data : [];
+            setCache(cacheKey, result); // Cache the response
+            setFaculty(result);
         } catch (error) {
             console.error('Error fetching faculty:', error);
             setFaculty([]);
@@ -281,38 +705,50 @@ const Analysis = () => {
         setLoadingAnalysis(true);
         
         try {
-            // Save current state before navigating
-            sessionStorage.setItem('analysisFilters', JSON.stringify(filters));
-            sessionStorage.setItem('savedFaculty', JSON.stringify(faculty));
-            sessionStorage.setItem('savedStaffIdSearch', staffIdSearch);
+            // Save current state to localStorage (persists across sessions)
+            localStorage.setItem('analysisFilters', JSON.stringify(filters));
+            localStorage.setItem('savedFaculty', JSON.stringify(faculty));
+            localStorage.setItem('savedStaffIdSearch', staffIdSearch);
             
-            // For each batch this faculty teaches, we'll get the analysis
-            // But for now, let's get the first batch or combined analysis
-            const batchToUse = facultyData.batches && facultyData.batches.length > 0 
-                ? facultyData.batches[0] 
-                : null;
+            // Get staff ID from faculty data
+            const staffId = facultyData.staff_id || facultyData.staffid || '';
             
-            if (!batchToUse) {
-                alert('No batch information available for this faculty');
+            if (!staffId) {
+                alert('Staff ID not available for this faculty member');
                 setLoadingAnalysis(false);
                 return;
             }
             
+            // Build params with new filter hierarchy
             const params = new URLSearchParams({
-                degree: filters.degree,
-                dept: filters.department,
-                batch: batchToUse,
-                course: filters.course,
-                staffId: facultyData.staff_id || facultyData.staffid || ''
+                degree: encodeURIComponent(filters.degree),
+                currentAY: encodeURIComponent(filters.currentAY),
+                semester: encodeURIComponent(filters.semester),
+                courseOfferingDept: encodeURIComponent(filters.courseOfferingDept),
+                course: encodeURIComponent(filters.course),
+                staffId: encodeURIComponent(staffId)
             });
             
             const response = await fetch(`${SERVER_URL}/api/analysis/feedback?${params.toString()}`);
             const data = await response.json();
             
             if (data.success) {
+                // Add filter information to analysis data for comments loading
+                const analysisDataWithFilters = {
+                    ...data,
+                    degree: filters.degree,
+                    currentAY: filters.currentAY,
+                    semester: filters.semester,
+                    courseOfferingDept: filters.courseOfferingDept,
+                    course_code: filters.course,
+                    course: filters.course
+                };
+                
                 // Store analysis data and faculty data for the results page
-                sessionStorage.setItem('analysisResults', JSON.stringify(data));
+                sessionStorage.setItem('analysisResults', JSON.stringify(analysisDataWithFilters));
                 sessionStorage.setItem('facultyData', JSON.stringify(facultyData));
+                // Set flag to indicate we're navigating to results (so we can restore when coming back)
+                sessionStorage.setItem('navigatingToResults', 'true');
                 
                 // Navigate to analysis results page
                 navigate('/analysis-results');
@@ -329,13 +765,11 @@ const Analysis = () => {
     };
 
     // Get available batches for batch filter dropdown
+    // Note: Batches are not part of the new filter hierarchy, but may still be used for report filtering
     const getAvailableBatches = () => {
-        if (!filters.course) return [];
-        
-        const selectedCourse = options.courses.find(c => c.code === filters.course);
-        if (!selectedCourse || !selectedCourse.batches) return [];
-        
-        return ['all', ...selectedCourse.batches];
+        // For now, return 'all' as default since batches are not in the new hierarchy
+        // This can be updated later if batch filtering is needed
+        return ['all'];
     };
 
     return (
@@ -366,7 +800,7 @@ const Analysis = () => {
                 <h1 className="portal-title">Student Feedback Analysis Portal</h1>
                 <h2 className="institution">Kalasalingam Academy of Research and Education</h2>
                 <p className="portal-description">
-                    Use the filters below to analyze student feedback by degree, department, and course.
+                    Use the filters below to analyze student feedback by degree, academic year, semester, course offering department, and course.
                 </p>
 
                 <div className="filters-section">
@@ -377,7 +811,9 @@ const Analysis = () => {
                             onChange={(e) => setFilters({ 
                                 ...filters, 
                                 degree: e.target.value,
-                                department: '',
+                                currentAY: '',
+                                semester: '',
+                                courseOfferingDept: '',
                                 course: ''
                             })}
                         >
@@ -389,18 +825,57 @@ const Analysis = () => {
                     </div>
 
                     <div className="filter-group">
-                        <label>Department</label>
+                        <label>Current Academic Year</label>
                         <select 
-                            value={filters.department}
+                            value={filters.currentAY}
                             onChange={(e) => setFilters({
                                 ...filters,
-                                department: e.target.value,
+                                currentAY: e.target.value,
+                                semester: '',
+                                courseOfferingDept: '',
                                 course: ''
                             })}
                             disabled={!filters.degree}
                         >
-                            <option value="">Select Department</option>
-                            {options.departments.map(dept => (
+                            <option value="">Select Academic Year</option>
+                            {options.currentAYs.map(ay => (
+                                <option key={ay} value={ay}>{ay}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="filter-group">
+                        <label>Semester</label>
+                        <select 
+                            value={filters.semester}
+                            onChange={(e) => setFilters({
+                                ...filters,
+                                semester: e.target.value,
+                                courseOfferingDept: '',
+                                course: ''
+                            })}
+                            disabled={!filters.currentAY}
+                        >
+                            <option value="">Select Semester</option>
+                            {options.semesters.map(sem => (
+                                <option key={sem} value={sem}>{sem}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="filter-group">
+                        <label>Course Offering Department</label>
+                        <select 
+                            value={filters.courseOfferingDept}
+                            onChange={(e) => setFilters({
+                                ...filters,
+                                courseOfferingDept: e.target.value,
+                                course: ''
+                            })}
+                            disabled={!filters.semester}
+                        >
+                            <option value="">Select Course Offering Department</option>
+                            {options.courseOfferingDepts.map(dept => (
                                 <option key={dept} value={dept}>{dept}</option>
                             ))}
                         </select>
@@ -414,12 +889,12 @@ const Analysis = () => {
                                 ...filters,
                                 course: e.target.value
                             })}
-                            disabled={!filters.department}
+                            disabled={!filters.courseOfferingDept}
                         >
                             <option value="">Select Course</option>
                             {options.courses.map(course => (
                                 <option key={course.code} value={course.code}>
-                                    {course.code} - {course.name} (Batches: {course.batches.join(', ')})
+                                    {course.code} - {course.name}
                                 </option>
                             ))}
                         </select>
@@ -452,26 +927,13 @@ const Analysis = () => {
                             </div>
                         </div>
                         
-                        {filters.course && (
-                            <div className="filter-group" style={{marginLeft: '1rem'}}>
-                                <label>Batch for Report:</label>
-                                <select 
-                                    value={selectedBatch}
-                                    onChange={(e) => setSelectedBatch(e.target.value)}
-                                >
-                                    <option value="all">All Batches</option>
-                                    {getAvailableBatches().filter(b => b !== 'all').map(batch => (
-                                        <option key={batch} value={batch}>{batch}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
+                        {/* Batch filter removed - not part of new filter hierarchy */}
                         
                         <button
                             type="button"
                             className="generate-dept-btn"
                             onClick={handleGenerateDepartmentReport}
-                            disabled={!filters.degree || !filters.department || loadingDeptReport}
+                            disabled={!filters.degree || !filters.currentAY || !filters.semester || !filters.courseOfferingDept || loadingDeptReport}
                         >
                             {loadingDeptReport ? 'Generating…' : 'Generate Department Report'}
                         </button>
@@ -479,7 +941,7 @@ const Analysis = () => {
                             type="button"
                             className="generate-dept-btn"
                             onClick={handleGenerateNegativeCommentsExcel}
-                            disabled={!filters.degree || !filters.department || loadingNegativeCommentsExcel}
+                            disabled={!filters.degree || !filters.currentAY || !filters.semester || !filters.courseOfferingDept || loadingNegativeCommentsExcel}
                             style={{ marginLeft: '1rem', backgroundColor: '#28a745' }}
                         >
                             {loadingNegativeCommentsExcel ? 'Generating…' : 'Generate Negative Comments Excel'}
@@ -516,7 +978,7 @@ const Analysis = () => {
                                             <div className="faculty-header-info">
                                                 <div className="faculty-name">{fac.faculty_name || fac.name || 'Unknown'}</div>
                                                 <div className="faculty-sub">
-                                                    <strong>{filters.degree || '-'}</strong> · {filters.department || '-'}
+                                                    <strong>{filters.degree || '-'}</strong> · {filters.courseOfferingDept || '-'}
                                                 </div>
                                             </div>
                                         </div>
